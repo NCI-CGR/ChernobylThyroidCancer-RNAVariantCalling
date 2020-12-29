@@ -1,0 +1,90 @@
+# vim: ft=python
+import os
+import glob
+import itertools
+import pandas as pd
+
+configfile: "vardict_config.yaml"
+workdir: os.environ['PWD']
+shell.executable('bash')
+
+
+bamfiles = glob.glob(config['bams_glob'])
+
+# The Perl version of vardict has no native parallel option,
+# so instead we break the genome into 100 pieces and run many small jobs
+# bedtools outputs have numbers with three digits
+bed_subs = ["{0:03}".format(x) for x in list(range(config['bed_subsets']))]
+
+## ---- The parser will have to be customized for each run ---- ##
+def parse_sampleID(filename):
+    return filename.split('/')[1]
+
+sampleIDs = [parse_sampleID(x) for x in bamfiles]
+
+
+localrules: var_all
+
+#--------------------------------------------------------------------------
+rule var_all:
+    input: expand('ann/{sampleID}.snpeff.vcf', sampleID=sampleIDs),
+
+rule index_bam:
+    input: config['bams_input']
+    output: config['bams_input'] + '.bai'
+    run:
+        shell('samtools index {input}')
+
+rule subset_beds:
+    input: config['hg_ref']
+    output: expand('ref_subset/ref_{sub}.bed', sub=bed_subs)
+    run:
+            shell('bedtools makewindows -g {input} -n %s | split -l 1 -d -a 3 - ref')
+
+rule vardict:
+    input:
+        bam = config['bams_input'],
+        bai = config['bams_input'] + '.bai',
+        bed = 'ref_subset/ref_{sub}'
+    output:
+        'var_subs/{sampleID}/{sampleID}_{sub}.vardict_variants.txt'
+    params:
+        vardict = config['vardict'],
+        fa = config['hg_ref']
+    run:
+        shell('{params.vardict} -c 1 -S 2 -E 3 \
+                -N {wildcards.sampleID} \
+                -G {params.fa} \
+                -b {input.bam} \
+                {input.bed} > {output}')
+
+rule merge_vardict:
+    input: expand('var_subs/{{sampleID}}/{{sampleID}}_{sub}.vardict_variants.txt', sub=bed_subs)
+    output: 'merged_var/{sampleID}.vardict_variants.merged.txt'
+    run:
+        shell('for f in {input}; do cat "$f" >> {output}; done') # too many files for bash cat {input}
+
+# Note - this script creates tons of error messages on the last line, but they don't affect the output
+rule to_vcf:
+    input: rules.merge_vardict.output
+    output: 'vardict_vcf/{sampleID}.vardict.vcf'
+    params: script = config['var2vcf']
+    run:
+        shell('{params.script} {input} > {output}')
+
+rule snpeff:
+    input: rules.to_vcf.output
+    output: 
+        vcf = 'ann/{sampleID}.snpeff.vcf',
+        csv = 'ann/{sampleID}_snpEff.summary.csv'
+    params:
+        java = config['snpeff_java'],
+        jar = config['snpeff_jar'],
+        config = config['snpeinteractf_config'],
+        ref_build = config['snpeff_ref']
+    run:
+        shell('{params.java} {params.jar} \
+        -csvStats -stats {output.csv} \
+        -c {params.config} \
+        {params.ref_build} {input} > {output.vcf}')
+
