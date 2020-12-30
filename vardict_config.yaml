@@ -1,19 +1,15 @@
-bams_glob: star/*/*_Aligned.sortedByCoord.out.bam # glob format to find all bams
-bams_input: star/{sampleID}/{sampleID}_Aligned.sortedByCoord.out.bam # this is the input to the first rule
+bams_glob: ../test_sets/100k/star/*/*_Aligned.sortedByCoord.out.bam # glob format to find all bams
+bams_input: ../test_sets/100k/star/{sampleID}/{sampleID}_Aligned.sortedByCoord.out.bam # this is the input to the first rule
 
 hg_ref: /data/DCEG_Chernobyl/reference/hg19_canonical/hg19_canonical.fa
+genome_file: /data/DCEG_Chernobyl/reference/vardict/hg19.genome
 bed_subsets: 100 # how many files the hg reference should be split into
 # this is the only way to parallelize the Perl version of vardict
 
-beds: /data/DCEG_Chernobyl/reference/vardict/beds100 # generated with bedtools makewindows and bash split
-meta: /data/DCEG_Chernobyl/reference/chernobyl/REBC_Sample_Status_Tracking_Master_041718.xlsx
-
-vardict: vardict.pl # conda
-#var2vcf: perl /data/DCEG_Chernobyl/reference/vardict/var2vcf_valid.pl
-var2vcf: var2vcf_valid.pl # conda
+vardict: vardict.pl # conda command or path to script
+var2vcf: perl /data/DCEG_Chernobyl/reference/vardict/var2vcf_valid.pl # not part of conda package?
 vardict_fa: /data/DCEG_Chernobyl/reference/ucsc/ucsc.hg19.fasta
 
-#snpeff: snpEff # conda
 snpeff_java: java -Xmx2g -jar
 snpeff_jar: /data/DCEG_Chernobyl/reference/snpeff/snpEff.jar
 snpeff_config: /data/DCEG_Chernobyl/reference/snpeff/snpEff.config

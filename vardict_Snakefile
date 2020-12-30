@@ -2,7 +2,7 @@
 import os
 import glob
 import itertools
-import pandas as pd
+import pandas
 
 configfile: "vardict_config.yaml"
 workdir: os.environ['PWD']
@@ -14,11 +14,19 @@ bamfiles = glob.glob(config['bams_glob'])
 # The Perl version of vardict has no native parallel option,
 # so instead we break the genome into 100 pieces and run many small jobs
 # bedtools outputs have numbers with three digits
-bed_subs = ["{0:03}".format(x) for x in list(range(config['bed_subsets']))]
+
+# calculate the size of each genome chunk that you want for the subsets
+df = pandas.read_csv(config['genome_file'], sep='\t', names=['chr', 'len'])
+gen_size = df['len'].sum()
+win_size = int(gen_size / config['bed_subsets']) # this will be passed to bedtools makewindows
+
+# these will be the suffixes that snakemake will look for
+bed_subs = ["{0:03}".format(x) for x in list(range(config['bed_subsets'] + 12))] 
+# add 12 to account for remaineders after chunking. this may need to be adjusted
 
 ## ---- The parser will have to be customized for each run ---- ##
 def parse_sampleID(filename):
-    return filename.split('/')[1]
+    return filename.split('/')[-2]
 
 sampleIDs = [parse_sampleID(x) for x in bamfiles]
 
@@ -36,16 +44,21 @@ rule index_bam:
         shell('samtools index {input}')
 
 rule subset_beds:
-    input: config['hg_ref']
+    input: config['genome_file']
     output: expand('ref_subset/ref_{sub}.bed', sub=bed_subs)
     run:
-            shell('bedtools makewindows -g {input} -n %s | split -l 1 -d -a 3 - ref')
+            shell('bedtools makewindows -g {input} -w %s | \
+                    split --lines=1 \
+                    --numeric-suffixes=0 \
+                    --suffix-length=3 \
+                    --additional-suffix=.bed \
+                    - ref_subset/ref_' %win_size)
 
 rule vardict:
     input:
         bam = config['bams_input'],
         bai = config['bams_input'] + '.bai',
-        bed = 'ref_subset/ref_{sub}'
+        bed = 'ref_subset/ref_{sub}.bed'
     output:
         'var_subs/{sampleID}/{sampleID}_{sub}.vardict_variants.txt'
     params:
@@ -80,7 +93,7 @@ rule snpeff:
     params:
         java = config['snpeff_java'],
         jar = config['snpeff_jar'],
-        config = config['snpeinteractf_config'],
+        config = config['snpeff_config'],
         ref_build = config['snpeff_ref']
     run:
         shell('{params.java} {params.jar} \
