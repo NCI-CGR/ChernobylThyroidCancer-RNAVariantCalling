@@ -1,0 +1,100 @@
+# vim: ft=python
+import os
+import glob
+import pandas
+
+configfile: "vardict_config.yaml"
+workdir: os.environ['PWD']
+shell.executable('bash')
+
+
+# The Perl version of vardict has no option for running in parallel,
+# so instead we break the genome into chunks and run many small jobs.
+
+# Use the target number of subsets (set in config) to calculate the window size for bedtools.
+df = pandas.read_csv(config['genome_file'], sep='\t', names=['chr', 'len'])
+gen_size = df['len'].sum()
+win_size = int(gen_size / config['bed_subsets']) # This will be passed to bedtools makewindows.
+
+# These will be the bed suffixes that snakemake will look for.
+# Note that bedtools outputs files with three digits.
+bed_subs = ["{0:03}".format(x) for x in list(range(config['bed_subsets'] + 12))] 
+# Add 12 to account for remainders after chunking. This may need to be adjusted.
+
+## The parser will have to be customized for each run. ##
+def parse_sampleID(filename):
+    return filename.split('/')[-2]
+
+bamfiles = glob.glob(config['bams_glob'])
+sampleIDs = [parse_sampleID(x) for x in bamfiles]
+
+#--------------------------------------------------------------------------------------
+
+localrules: var_all
+
+rule var_all:
+    input: expand('ann/{sampleID}.snpeff.vcf', sampleID=sampleIDs),
+
+rule index_bam:
+    input: config['bams_input']
+    output: config['bams_input'] + '.bai'
+    run:
+        shell('samtools index {input}')
+
+rule subset_beds:
+    input: config['genome_file']
+    output: expand('ref_subset/ref_{sub}.bed', sub=bed_subs)
+    run:
+            shell('bedtools makewindows -g {input} -w %s | \
+                    split --lines=1 \
+                    --numeric-suffixes=0 \
+                    --suffix-length=3 \
+                    --additional-suffix=.bed \
+                    - ref_subset/ref_' %win_size)
+
+rule vardict:
+    input:
+        bam = config['bams_input'],
+        bai = config['bams_input'] + '.bai',
+        bed = 'ref_subset/ref_{sub}.bed'
+    output:
+        'var_subs/{sampleID}/{sampleID}_{sub}.vardict_variants.txt'
+    params:
+        vardict = config['vardict'],
+        fa = config['hg_ref']
+    run:
+        shell('{params.vardict} -c 1 -S 2 -E 3 \
+                -N {wildcards.sampleID} \
+                -G {params.fa} \
+                -b {input.bam} \
+                {input.bed} > {output}')
+
+rule merge_vardict:
+    input: expand('var_subs/{{sampleID}}/{{sampleID}}_{sub}.vardict_variants.txt', sub=bed_subs)
+    output: 'merged_var/{sampleID}.vardict_variants.merged.txt'
+    run:
+        shell('for f in {input}; do cat "$f" >> {output}; done') # too many files for bash cat {input}
+
+rule to_vcf:
+    input: rules.merge_vardict.output
+    output: 'vardict_vcf/{sampleID}.vardict.vcf'
+    params: script = config['var2vcf']
+    run:
+        shell('{params.script} {input} > {output}')
+
+rule snpeff:
+    input: rules.to_vcf.output
+    output: 
+        vcf = 'ann/{sampleID}.snpeff.vcf',
+        csv = 'ann/{sampleID}_snpEff.summary.csv'
+    params:
+        java = config['snpeff_java'],
+        jar = config['snpeff_jar'],
+        config = config['snpeff_config'],
+        ref_build = config['snpeff_ref']
+    run:
+        shell('{params.java} {params.jar} \
+            -csvStats -stats {output.csv} \
+            -c {params.config} \
+            {params.ref_build} {input} > {output.vcf}')
+
