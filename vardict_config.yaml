@@ -8,7 +8,6 @@ bed_subsets: 100 # how many files the hg reference should be split into
 
 vardict: vardict.pl # conda command or path to script
 var2vcf: perl /data/DCEG_Chernobyl/reference/vardict/var2vcf_valid.pl # not part of conda package?
-vardict_fa: /data/DCEG_Chernobyl/reference/ucsc/ucsc.hg19.fasta
 
 snpeff_java: java -Xmx2g -jar
 snpeff_jar: /data/DCEG_Chernobyl/reference/snpeff/snpEff.jar

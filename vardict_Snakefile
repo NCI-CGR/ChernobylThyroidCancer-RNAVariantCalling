@@ -1,7 +1,6 @@
 # vim: ft=python
 import os
 import glob
-import itertools
 import pandas
 
 configfile: "vardict_config.yaml"
@@ -9,31 +8,30 @@ workdir: os.environ['PWD']
 shell.executable('bash')
 
 
-bamfiles = glob.glob(config['bams_glob'])
+# The Perl version of vardict has no option for running in parallel,
+# so instead we break the genome into chunks and run many small jobs.
 
-# The Perl version of vardict has no native parallel option,
-# so instead we break the genome into 100 pieces and run many small jobs
-# bedtools outputs have numbers with three digits
-
-# calculate the size of each genome chunk that you want for the subsets
+# Use the target number of subsets (set in config) to calculate the window size for bedtools.
 df = pandas.read_csv(config['genome_file'], sep='\t', names=['chr', 'len'])
 gen_size = df['len'].sum()
-win_size = int(gen_size / config['bed_subsets']) # this will be passed to bedtools makewindows
+win_size = int(gen_size / config['bed_subsets']) # This will be passed to bedtools makewindows.
 
-# these will be the suffixes that snakemake will look for
+# These will be the bed suffixes that snakemake will look for.
+# Note that bedtools outputs files with three digits.
 bed_subs = ["{0:03}".format(x) for x in list(range(config['bed_subsets'] + 12))] 
-# add 12 to account for remaineders after chunking. this may need to be adjusted
+# Add 12 to account for remainders after chunking. This may need to be adjusted.
 
-## ---- The parser will have to be customized for each run ---- ##
+## The parser will have to be customized for each run. ##
 def parse_sampleID(filename):
     return filename.split('/')[-2]
 
+bamfiles = glob.glob(config['bams_glob'])
 sampleIDs = [parse_sampleID(x) for x in bamfiles]
 
+#--------------------------------------------------------------------------------------
 
 localrules: var_all
 
-#--------------------------------------------------------------------------
 rule var_all:
     input: expand('ann/{sampleID}.snpeff.vcf', sampleID=sampleIDs),
 
@@ -77,7 +75,6 @@ rule merge_vardict:
     run:
         shell('for f in {input}; do cat "$f" >> {output}; done') # too many files for bash cat {input}
 
-# Note - this script creates tons of error messages on the last line, but they don't affect the output
 rule to_vcf:
     input: rules.merge_vardict.output
     output: 'vardict_vcf/{sampleID}.vardict.vcf'
@@ -97,7 +94,7 @@ rule snpeff:
         ref_build = config['snpeff_ref']
     run:
         shell('{params.java} {params.jar} \
-        -csvStats -stats {output.csv} \
-        -c {params.config} \
-        {params.ref_build} {input} > {output.vcf}')
+            -csvStats -stats {output.csv} \
+            -c {params.config} \
+            {params.ref_build} {input} > {output.vcf}')
 
