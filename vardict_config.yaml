@@ -7,7 +7,7 @@ bed_subsets: 100 # how many files the hg reference should be split into
     # this runs VarDict in parallel
 
 vardict: vardict.pl # conda command or path to script
-var2vcf: perl var2vcf_valid.pl # not part of conda package?
+var2vcf: perl var2vcf_valid.pl # not part of conda package? needs to be on path
 
 snpeff_java: java -Xmx2g -jar
 snpeff_jar: snpEff.jar

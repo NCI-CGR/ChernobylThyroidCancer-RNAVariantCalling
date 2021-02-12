@@ -35,11 +35,13 @@ localrules: var_all
 rule var_all:
     input: expand('ann/{sampleID}.snpeff.vcf', sampleID=sampleIDs),
 
+
 rule index_bam:
     input: config['bams_input']
     output: config['bams_input'] + '.bai'
     run:
         shell('samtools index {input}')
+
 
 rule subset_beds:
     input: config['genome_file']
@@ -51,6 +53,7 @@ rule subset_beds:
                     --suffix-length=3 \
                     --additional-suffix=.bed \
                     - ref_subset/ref_' %win_size)
+
 
 rule vardict:
     input:
@@ -69,11 +72,13 @@ rule vardict:
                 -b {input.bam} \
                 {input.bed} > {output}')
 
+
 rule merge_vardict:
     input: expand('var_subs/{{sampleID}}/{{sampleID}}_{sub}.vardict_variants.txt', sub=bed_subs)
     output: 'merged_var/{sampleID}.vardict_variants.merged.txt'
     run:
         shell('for f in {input}; do cat "$f" >> {output}; done') # too many files for bash cat {input}
+
 
 rule to_vcf:
     input: rules.merge_vardict.output
@@ -81,6 +86,7 @@ rule to_vcf:
     params: script = config['var2vcf']
     run:
         shell('{params.script} {input} > {output}')
+
 
 rule snpeff:
     input: rules.to_vcf.output
